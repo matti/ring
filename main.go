@@ -1,24 +1,22 @@
-package main
+package ring
 
 import (
 	"bufio"
 	"bytes"
-	"flag"
-	"fmt"
 	"io"
 	"math/rand"
 	"os"
 	"time"
 )
 
-func fastLineCounter(r io.Reader) (int64, error) {
+func fastLineCounter(r io.Reader) (uint64, error) {
 	buf := make([]byte, 32*1024)
-	var count int64
+	var count uint64
 	lineSep := []byte{'\n'}
 
 	for {
 		c, err := r.Read(buf)
-		count += (int64)(bytes.Count(buf[:c], lineSep))
+		count += (uint64)(bytes.Count(buf[:c], lineSep))
 
 		switch {
 		case err == io.EOF:
@@ -30,50 +28,48 @@ func fastLineCounter(r io.Reader) (int64, error) {
 	}
 }
 
-func main() {
-	var lines int64
-	flag.Int64Var(&lines, "lines", -1, "lines")
-	flag.Parse()
+func ReadLines(path string) (chan string, error) {
+	var lines chan string = make(chan string, 1024)
 
-	rand.Seed(time.Now().UnixNano())
-
-	f, err := os.Open(flag.Arg(0))
+	f, err := os.Open(path)
 	if err != nil {
 		panic(err)
 	}
 
-	if lines == -1 {
-		lines, err = fastLineCounter(f)
+	go func() {
+		rand.Seed(time.Now().UnixNano())
+
+		lineCount, err := fastLineCounter(f)
 		if err != nil {
 			panic(err)
 		}
-	}
+		f.Seek(0, 0)
 
-	var currentLine int64
-	var scanner bufio.Scanner
+		offset := rand.Int63n((int64)(lineCount))
+		var scanner *bufio.Scanner
+		scanner = bufio.NewScanner(f)
 
-	offset := rand.Int63n(lines)
-
-	f.Seek(0, 0)
-	scanner = *bufio.NewScanner(f)
-	currentLine = 0
-	for scanner.Scan() {
-		currentLine++
-
-		if currentLine < offset {
-			continue
+		for i := int64(0); scanner.Scan(); i++ {
+			// rewind file forward up to offset
+			if i < offset {
+				continue
+			}
+			//lines <- strconv.Itoa(int(i)+1) + ": " + scanner.Text()
+			lines <- scanner.Text()
 		}
-		fmt.Println(scanner.Text())
-	}
 
-	f.Seek(0, 0)
-	scanner = *bufio.NewScanner(f)
-	currentLine = 0
-	for scanner.Scan() {
-		currentLine++
-		if currentLine >= offset {
-			break
+		f.Seek(0, 0)
+		scanner = bufio.NewScanner(f)
+		for i := int64(0); scanner.Scan(); i++ {
+			if i >= offset {
+				break
+			}
+			//lines <- strconv.Itoa(int(i)+1) + ": " + scanner.Text()
+			lines <- scanner.Text()
 		}
-		fmt.Println(scanner.Text())
-	}
+
+		close(lines)
+	}()
+
+	return lines, nil
 }
